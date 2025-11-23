@@ -7,12 +7,12 @@ from plotly.subplots import make_subplots
 import numpy as np
 
 # CẤU HÌNH TRANG
-st.set_page_config(page_title="ROBOT CHỨNG KHOÁN VĨNH VIỄN", layout="wide")
+st.set_page_config(page_title="ROBOT V9.0 - FIBONACCI & PATTERNS", layout="wide")
 
 # CSS
 st.markdown("""
     <style>
-    .stButton>button {background-color: #008080; color: white; font-weight: bold; border-radius: 8px; height: 50px; width: 100%;}
+    .stButton>button {background-color: #4B0082; color: white; font-weight: bold; border-radius: 8px; height: 50px; width: 100%;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -29,7 +29,7 @@ DANH_MUC = {
     "UPCOM": ["BSR.VN", "VGI.VN", "VEA.VN", "QNS.VN", "OIL.VN", "MSR.VN", "ACV.VN", "SIP.VN", "LTG.VN"]
 }
 
-# HÀM VSA
+# HÀM LOGIC VSA
 def phan_tich_vsa(vol_now, vol_avg, change):
     ratio = vol_now / vol_avg if vol_avg > 0 else 0
     tin_hieu = "-"
@@ -39,8 +39,43 @@ def phan_tich_vsa(vol_now, vol_avg, change):
     elif ratio < 0.6: tin_hieu = "💤 Cạn Cung"
     return ratio, tin_hieu
 
-# HÀM VẼ BIỂU ĐỒ
-def ve_bieu_do(df, symbol, show_bb, show_ma, show_ichi):
+# HÀM NHẬN DIỆN MÔ HÌNH NẾN (Nến Nhật)
+def soi_nen_nhat(df):
+    # Tính thân nến và bóng nến
+    df['Body'] = abs(df['Close'] - df['Open'])
+    df['Upper_Shadow'] = df['High'] - df[['Close', 'Open']].max(axis=1)
+    df['Lower_Shadow'] = df[['Close', 'Open']].min(axis=1) - df['Low']
+    
+    # 1. HAMMER (Búa) - Đảo chiều Tăng
+    # Bóng dưới dài gấp 2 lần thân, bóng trên nhỏ
+    df['Hammer'] = np.where((df['Lower_Shadow'] > 2 * df['Body']) & 
+                            (df['Upper_Shadow'] < 0.5 * df['Body']), 1, 0)
+    
+    # 2. SHOOTING STAR (Sao đổi ngôi) - Đảo chiều Giảm
+    # Bóng trên dài gấp 2 lần thân, bóng dưới nhỏ
+    df['Shooting_Star'] = np.where((df['Upper_Shadow'] > 2 * df['Body']) & 
+                                   (df['Lower_Shadow'] < 0.5 * df['Body']), 1, 0)
+    return df
+
+# HÀM VẼ FIBONACCI
+def ve_fibonacci(fig, df):
+    # Lấy đỉnh và đáy trong kỳ
+    max_price = df['High'].max()
+    min_price = df['Low'].min()
+    diff = max_price - min_price
+    
+    # Các mức Fibo quan trọng
+    levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
+    colors = ['gray', 'red', 'orange', 'green', 'blue', 'red', 'gray']
+    
+    for i, level in enumerate(levels):
+        price_level = max_price - (diff * level)
+        fig.add_hline(y=price_level, line_dash="dash", line_width=1, line_color=colors[i], 
+                      annotation_text=f"Fibo {level:.3f} ({price_level:,.0f})", 
+                      annotation_position="top right", row=1, col=1)
+
+# HÀM VẼ BIỂU ĐỒ CHÍNH
+def ve_bieu_do(df, symbol, show_bb, show_ma, show_ichi, show_fibo, show_pattern):
     df['Vol_MA20'] = df['Volume'].rolling(20).mean()
     df['Signal_MACD'] = np.where(df['MACD_12_26_9'] > df['MACDs_12_26_9'], 1, 0)
     df['Crossover'] = df['Signal_MACD'].diff()
@@ -51,6 +86,20 @@ def ve_bieu_do(df, symbol, show_bb, show_ma, show_ichi):
 
     # 1. GIÁ
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Giá'), row=1, col=1)
+
+    # FIBONACCI
+    if show_fibo:
+        ve_fibonacci(fig, df)
+
+    # MÔ HÌNH NẾN
+    if show_pattern:
+        df = soi_nen_nhat(df)
+        hammer = df[df['Hammer'] == 1]
+        shooting = df[df['Shooting_Star'] == 1]
+        # Vẽ nốt Hammer (Màu Vàng)
+        fig.add_trace(go.Scatter(x=hammer.index, y=hammer['Low']*0.99, mode='markers+text', marker_symbol='circle-open', marker_color='gold', marker_size=10, text="🔨", textposition="bottom center", name='Hammer'), row=1, col=1)
+        # Vẽ nốt Shooting Star (Màu Tím)
+        fig.add_trace(go.Scatter(x=shooting.index, y=shooting['High']*1.01, mode='markers+text', marker_symbol='circle-open', marker_color='purple', marker_size=10, text="🌠", textposition="top center", name='Shooting Star'), row=1, col=1)
 
     # ICHIMOKU
     if show_ichi:
@@ -67,7 +116,7 @@ def ve_bieu_do(df, symbol, show_bb, show_ma, show_ichi):
             fig.add_trace(go.Scatter(x=df.index, y=ichi[col_span_b], line=dict(color='rgba(0,0,0,0)'), fill='tonexty', fillcolor='rgba(0, 255, 0, 0.1)', name='Mây Kumo'), row=1, col=1)
         except: pass
 
-    # BOLLINGER BANDS
+    # BOLLINGER
     if show_bb:
         try:
             bb = df.ta.bbands(length=20, std=2)
@@ -83,9 +132,9 @@ def ve_bieu_do(df, symbol, show_bb, show_ma, show_ichi):
         fig.add_trace(go.Scatter(x=df.index, y=df['Close'].rolling(20).mean(), line=dict(color='orange', width=1), name='MA20'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['Close'].rolling(50).mean(), line=dict(color='purple', width=1), name='MA50'), row=1, col=1)
 
-    # MŨI TÊN
-    fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Low']*0.98, mode='markers', marker_symbol='triangle-up', marker_color='#00CC00', marker_size=12, name='MUA'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['High']*1.02, mode='markers', marker_symbol='triangle-down', marker_color='#FF0000', marker_size=12, name='BÁN'), row=1, col=1)
+    # MŨI TÊN MACD
+    fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Low']*0.98, mode='markers', marker_symbol='triangle-up', marker_color='#00CC00', marker_size=12, name='MACD MUA'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['High']*1.02, mode='markers', marker_symbol='triangle-down', marker_color='#FF0000', marker_size=12, name='MACD BÁN'), row=1, col=1)
 
     # 2. VOLUME
     colors_vol = []
@@ -112,10 +161,12 @@ def ve_bieu_do(df, symbol, show_bb, show_ma, show_ichi):
     return fig
 
 # UI
-st.sidebar.title("🎛️ ROBOT CHỨNG KHOÁN")
+st.sidebar.title("🚀 ROBOT V9.0 (FIBO + NẾN)")
 mode = st.sidebar.radio("CHẾ ĐỘ:", ["🔍 SOI CHI TIẾT", "🌊 QUÉT SÓNG"])
 st.sidebar.markdown("---")
-show_ichi = st.sidebar.checkbox("Ichimoku", value=True)
+show_fibo = st.sidebar.checkbox("Fibonacci Retracement", value=True)
+show_pattern = st.sidebar.checkbox("Soi Nến Nhật (Búa/Sao)", value=True)
+show_ichi = st.sidebar.checkbox("Ichimoku Cloud", value=False)
 show_bb = st.sidebar.checkbox("Bollinger Bands", value=True)
 show_ma = st.sidebar.checkbox("MA 20/50", value=False)
 
@@ -126,7 +177,7 @@ if mode == "🔍 SOI CHI TIẾT":
     with c3: 
         st.write("")
         st.write("")
-        btn = st.button("PHÂN TÍCH")
+        btn = st.button("PHÂN TÍCH NGAY")
     
     if btn:
         try:
@@ -136,6 +187,7 @@ if mode == "🔍 SOI CHI TIẾT":
                 df.ta.macd(append=True)
                 df.ta.rsi(append=True)
                 
+                # Metrics
                 gia = df['Close'].iloc[-1]
                 chg = df['Close'].pct_change().iloc[-1]*100
                 vol_now = df['Volume'].iloc[-1]
@@ -147,7 +199,8 @@ if mode == "🔍 SOI CHI TIẾT":
                 m2.metric("🌊 VSA", f"x{ratio:.1f}", vsa_txt)
                 m3.metric("📊 RSI", f"{df['RSI_14'].iloc[-1]:.1f}")
                 
-                st.plotly_chart(ve_bieu_do(df, ma, show_bb, show_ma, show_ichi), use_container_width=True)
+                # Vẽ biểu đồ với Fibo và Pattern
+                st.plotly_chart(ve_bieu_do(df, ma, show_bb, show_ma, show_ichi, show_fibo, show_pattern), use_container_width=True)
                 
                 st.subheader("📋 Bảng Giá Lịch Sử")
                 st.dataframe(df.sort_index(ascending=False).head(10), use_container_width=True)
